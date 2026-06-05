@@ -26,8 +26,10 @@ app.use("/api/auth",        authRoutes);
 app.use("/api/restaurant",  restaurantRoutes);
 app.use("/api/ngo",         ngoRoutes);
 app.use("/api",             matchingRoutes);
-app.use("/api/agreements",  agreementRoutes);
+// messageRoutes antes de agreementRoutes: o stream SSE autentica por query param
+// e não pode passar pelo authenticate (header) global de agreementRoutes.
 app.use("/api/agreements/:id/messages", messageRoutes);
+app.use("/api/agreements",  agreementRoutes);
 
 // ─── Health check ─────────────────────────────────────────────────────────────
 app.get("/api/health", (req, res) => {

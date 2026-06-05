@@ -609,26 +609,33 @@ route('chat', async (params) => {
 
 function renderChat(a, messages, proxima_coleta, partnerName) {
   const dias = Array.isArray(a.dias) ? a.dias.join(', ') : (JSON.parse(a.dias || '[]')).join(', ');
+  const isActive = a.status === 'ativo';
+  const statusClass = isActive ? 'badge-active' : a.status === 'pendente' ? 'badge-orange' : 'badge-gray';
   setApp(`
     <div class="screen" style="height:100vh;">
       ${topbar({ back: "navigate('inicio')", title: partnerName })}
       <div style="padding:8px 16px;background:var(--bg-gray);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-shrink:0;">
-        <span class="badge badge-active">Acordo ativo</span>
+        <span class="badge ${statusClass}">Acordo ${a.status}</span>
         <span style="font-size:12px;color:var(--text-3);">📅 ${dias} · 📦 ${a.volume}</span>
       </div>
       <div class="chat-area" id="chatArea">
         ${messages.map(m => renderMessage(m)).join('')}
         ${proxima_coleta ? `<div class="msg-reminder">Lembrete: próxima coleta ${proxima_coleta}</div>` : ''}
         ${messages.length === 0 ? `<div class="msg-reminder">Início da conversa — diga olá!</div>` : ''}
+        ${!isActive ? `<div class="msg-reminder">Este acordo está ${a.status}; o envio de novas mensagens está bloqueado.</div>` : ''}
       </div>
       <div class="chat-input-bar">
-        <input class="chat-input" id="msgInput" placeholder="Escreva uma mensagem…" />
-        <button class="chat-send" onclick="sendMessage()">
+        <input class="chat-input" id="msgInput" placeholder="${isActive ? 'Escreva uma mensagem…' : 'Chat indisponível para acordo não ativo'}" ${isActive ? '' : 'disabled'} />
+        <button class="chat-send" onclick="sendMessage()" ${isActive ? '' : 'disabled'}>
           <svg width="18" height="18" fill="none" viewBox="0 0 18 18"><path d="M16 2L2 8l5 3 3 5 6-14z" stroke="white" stroke-width="1.6" stroke-linejoin="round"/></svg>
         </button>
       </div>
       ${bottomNav('chat')}
     </div>`);
+
+  // Controle de mensagens já renderizadas (evita duplicatas entre carga inicial e stream)
+  window._chatRenderedIds = new Set(messages.map(m => m.id));
+  window._chatCanSend = isActive;
 
   // Scroll to bottom
   const area = document.getElementById('chatArea');
@@ -637,6 +644,40 @@ function renderChat(a, messages, proxima_coleta, partnerName) {
   document.getElementById('msgInput').addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
   });
+
+  // Conecta o stream em tempo real apenas para chats ativos
+  if (isActive) {
+    startChatStream(a.id);
+  } else if (window._chatES) {
+    try { window._chatES.close(); } catch {}
+    window._chatES = null;
+  }
+}
+
+function appendMessage(m) {
+  if (!m || m.id == null) return;
+  if (!window._chatRenderedIds) window._chatRenderedIds = new Set();
+  if (window._chatRenderedIds.has(m.id)) return;
+  window._chatRenderedIds.add(m.id);
+
+  const area = document.getElementById('chatArea');
+  if (!area) return;
+  area.insertAdjacentHTML('beforeend', renderMessage(m));
+  area.scrollTop = area.scrollHeight;
+}
+
+function startChatStream(agreementId) {
+  // Fecha um stream anterior, se houver
+  if (window._chatES) { try { window._chatES.close(); } catch {} window._chatES = null; }
+  if (!Auth.token || typeof EventSource === 'undefined') return;
+
+  const url = `${API}/agreements/${agreementId}/messages/stream?token=${encodeURIComponent(Auth.token)}`;
+  const es = new EventSource(url);
+  es.addEventListener('message', e => {
+    try { appendMessage(JSON.parse(e.data)); } catch {}
+  });
+  // Em erro o próprio navegador tenta reconectar automaticamente.
+  window._chatES = es;
 }
 
 function renderMessage(m) {
@@ -654,27 +695,18 @@ function escHtml(s) {
 }
 
 window.sendMessage = async () => {
+  if (!window._chatCanSend) return;
   const input = document.getElementById('msgInput');
   const texto = input.value.trim();
   if (!texto) return;
   input.value = '';
   const aId = window._chatAgreementId;
 
-  // Optimistic UI
-  const area = document.getElementById('chatArea');
-  const tmpId = 'tmp_' + Date.now();
-  const now = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-  area.insertAdjacentHTML('beforeend', `
-    <div class="msg mine" id="${tmpId}">
-      <div class="msg-bubble">${escHtml(texto)}</div>
-      <div class="msg-time">${now}</div>
-    </div>`);
-  area.scrollTop = area.scrollHeight;
-
   try {
-    await api('POST', `/agreements/${aId}/messages`, { texto });
+    // A mensagem salva volta aqui (e também pelo stream); appendMessage deduplica por id.
+    const { message } = await api('POST', `/agreements/${aId}/messages`, { texto });
+    appendMessage(message);
   } catch (e) {
-    document.getElementById(tmpId)?.remove();
     toast(e.message, 'error');
     input.value = texto;
   }
@@ -772,6 +804,21 @@ route('impacto', async () => {
       </div>`);
   } catch (e) {
     toast(e.message, 'error');
+    setApp(`
+      <div class="screen">
+        ${topbar({ logo: true })}
+        <div class="screen-content">
+          <div class="empty">
+            <div class="empty-icon">⚠️</div>
+            <div class="empty-title">Não foi possível carregar seu impacto</div>
+            <div class="empty-sub">${e.message || 'Tente novamente em alguns instantes.'}</div>
+            <button class="btn btn-primary btn-sm" style="margin-top:16px;" onclick="navigate('impacto')">
+              Tentar novamente
+            </button>
+          </div>
+        </div>
+        ${bottomNav('impacto')}
+      </div>`);
   }
 });
 

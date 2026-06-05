@@ -100,8 +100,7 @@ router.put("/profile", (req, res) => {
 
 // ─── GET /api/ngo/impact ─────────────────────────────────────────────────────
 router.get("/impact", (req, res) => {
-  const profile = db.prepare("SELECT * FROM ngos WHERE user_id = ?").get(req.user.id);
-  if (!profile) return res.status(404).json({ message: "Perfil não encontrado." });
+  const profile = getOrCreateProfile(req.user.id);
 
   const nid = profile.id;
 

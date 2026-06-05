@@ -53,6 +53,12 @@ function render() {
   const params = window._routeParams || {};
   if (rest.length) params._id = rest[0];
 
+  // Encerra o stream do chat ao navegar para fora dele
+  if (name !== 'chat' && window._chatES) {
+    try { window._chatES.close(); } catch {}
+    window._chatES = null;
+  }
+
   // Redirect if not logged in
   const publicRoutes = ['landing', 'login', 'tipo', 'register',
     'onboard-r1', 'onboard-r2', 'onboard-r3',
@@ -155,6 +161,15 @@ function initChips(container, single = false) {
 
 function getActiveChips(container) {
   return [...container.querySelectorAll('.chip.active')].map(c => c.dataset.value);
+}
+
+function formatDias(dias) {
+  if (Array.isArray(dias)) return dias.join(', ');
+  try {
+    return (JSON.parse(dias || '[]')).join(', ');
+  } catch {
+    return '';
+  }
 }
 
 // ─── ROUTES ───────────────────────────────────────────────────────────────────
@@ -694,7 +709,7 @@ route('inicio', async () => {
                      <span class="badge badge-active">Acordo ativo</span>
                    </div>
                    <div class="acordo-banner-info">
-                     <span class="acordo-banner-detail">📅 ${(JSON.parse(a.dias||'[]')).join(', ')}</span>
+                     <span class="acordo-banner-detail">📅 ${formatDias(a.dias) || 'Dias não informados'}</span>
                      <span class="acordo-banner-detail">📦 ${a.volume}</span>
                    </div>
                    <div style="padding:0 14px 14px;display:flex;gap:8px;">
