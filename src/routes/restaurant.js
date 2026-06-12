@@ -78,7 +78,7 @@ router.put("/profile", (req, res) => {
       food_types   = COALESCE(?, food_types),
       frequency    = COALESCE(?, frequency),
       volume_range = COALESCE(?, volume_range),
-      updated_at   = datetime('now')
+      updated_at   = datetime('now', '-3 hours')
     WHERE user_id = ?
   `).run(
     cnpj || null,
@@ -98,59 +98,76 @@ router.put("/profile", (req, res) => {
 });
 
 // ─── GET /api/restaurant/impact ──────────────────────────────────────────────
-// Dashboard de impacto do restaurante
 router.get("/impact", (req, res) => {
   const profile = getOrCreateProfile(req.user.id);
-
   const rid = profile.id;
 
-  // Total geral
   const totals = db.prepare(`
-    SELECT
-      COALESCE(SUM(volume_kg), 0) AS total_kg,
-      COUNT(*)                    AS total_coletas
+    SELECT COALESCE(SUM(volume_kg), 0) AS total_kg, COUNT(*) AS total_coletas
     FROM donations WHERE restaurant_id = ?
   `).get(rid);
 
-  // Por semana (últimas 4 semanas)
-  const weekly = db.prepare(`
-    SELECT
-      strftime('%W', collected_at) AS week,
-      SUM(volume_kg)               AS kg
+  const mesAtual = db.prepare(`
+    SELECT COALESCE(SUM(volume_kg), 0) AS kg
     FROM donations
-    WHERE restaurant_id = ? AND collected_at >= date('now', '-28 days')
-    GROUP BY week
-    ORDER BY week
+    WHERE restaurant_id = ?
+      AND strftime('%Y-%m', collected_at) = strftime('%Y-%m', datetime('now', '-3 hours'))
+  `).get(rid).kg;
+
+  const weeklyRaw = db.prepare(`
+    SELECT
+      CAST((julianday(date('now', '-3 hours')) - julianday(date(collected_at))) / 7 AS INTEGER) AS weeks_ago,
+      SUM(volume_kg) AS kg
+    FROM donations
+    WHERE restaurant_id = ? AND collected_at >= datetime('now', '-3 hours', '-28 days')
+    GROUP BY weeks_ago
+    HAVING weeks_ago BETWEEN 0 AND 3
   `).all(rid);
 
-  // Acordos ativos
+  const weeklyMap = {};
+  weeklyRaw.forEach(r => { weeklyMap[r.weeks_ago] = r.kg; });
+  const weekly = [3, 2, 1, 0].map(offset => ({
+    label: offset === 0 ? 'Esta' : `-${offset}s`,
+    kg: Math.round((weeklyMap[offset] || 0) * 10) / 10
+  }));
+
   const activeAgreements = db.prepare(`
     SELECT COUNT(*) AS count FROM agreements
     WHERE restaurant_id = ? AND status = 'ativo'
   `).get(rid).count;
 
-  const totalKg = totals.total_kg;
-  const meals   = Math.round(totalKg / 0.5); // 0.5 kg por refeição
-  const people  = Math.round(meals / 3);     // estimativa: 3 refeições/dia/pessoa
+  const parceiros = db.prepare(`
+    SELECT COUNT(DISTINCT ngo_id) AS count FROM agreements
+    WHERE restaurant_id = ? AND status IN ('ativo', 'encerrado')
+  `).get(rid).count;
 
-  // Impacto por ONG parceira (o que as ONGs relatam)
+  const tipoMaisDoado = db.prepare(`
+    SELECT food_type, SUM(volume_kg) AS kg
+    FROM donations WHERE restaurant_id = ?
+    GROUP BY food_type ORDER BY kg DESC LIMIT 1
+  `).get(rid);
+
+  const totalKg = totals.total_kg;
+  const meals   = Math.round(totalKg / 0.5);
+  const people  = Math.round(meals / 3);
+
   const ngoActions = db.prepare(`
     SELECT n.nome, SUM(d.volume_kg) AS kg
-    FROM donations d
-    JOIN ngos n ON n.id = d.ngo_id
+    FROM donations d JOIN ngos n ON n.id = d.ngo_id
     WHERE d.restaurant_id = ?
-    GROUP BY d.ngo_id
-    ORDER BY kg DESC
-    LIMIT 5
+    GROUP BY d.ngo_id ORDER BY kg DESC LIMIT 5
   `).all(rid);
 
   return res.json({
     impact: {
-      total_kg:          totalKg,
+      total_kg:          Math.round(totalKg * 10) / 10,
       total_coletas:     totals.total_coletas,
+      mes_atual_kg:      Math.round(mesAtual * 10) / 10,
       refeicoes:         meals,
       pessoas_estimadas: people,
       acordos_ativos:    activeAgreements,
+      parceiros_total:   parceiros,
+      tipo_mais_doado:   tipoMaisDoado?.food_type || null,
       weekly_kg:         weekly,
       por_ong:           ngoActions
     }

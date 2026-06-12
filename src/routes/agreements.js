@@ -76,8 +76,8 @@ router.post("/", (req, res) => {
   }
 
   const result = db.prepare(`
-    INSERT INTO agreements (restaurant_id, ngo_id, dias, horario, volume, food_type, iniciado_por)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO agreements (restaurant_id, ngo_id, dias, horario, volume, food_type, iniciado_por, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', '-3 hours'), datetime('now', '-3 hours'))
   `).run(rid, nid, JSON.stringify(dias), horario, volume, food_type, iniciado_por);
 
   const agreement = db
@@ -172,7 +172,7 @@ router.patch("/:id/accept", (req, res) => {
   }
 
   db.prepare(`
-    UPDATE agreements SET status = 'ativo', updated_at = datetime('now') WHERE id = ?
+    UPDATE agreements SET status = 'ativo', updated_at = datetime('now', '-3 hours') WHERE id = ?
   `).run(a.id);
 
   const updated = db.prepare("SELECT * FROM agreements WHERE id = ?").get(a.id);
@@ -202,7 +202,7 @@ router.patch("/:id/reject", (req, res) => {
   }
 
   db.prepare(`
-    UPDATE agreements SET status = 'recusado', updated_at = datetime('now') WHERE id = ?
+    UPDATE agreements SET status = 'recusado', updated_at = datetime('now', '-3 hours') WHERE id = ?
   `).run(a.id);
 
   const updated = db.prepare("SELECT * FROM agreements WHERE id = ?").get(a.id);
@@ -233,7 +233,7 @@ router.patch("/:id/close", (req, res) => {
   }
 
   db.prepare(`
-    UPDATE agreements SET status = 'encerrado', updated_at = datetime('now') WHERE id = ?
+    UPDATE agreements SET status = 'encerrado', updated_at = datetime('now', '-3 hours') WHERE id = ?
   `).run(a.id);
 
   const updated = db.prepare("SELECT * FROM agreements WHERE id = ?").get(a.id);
@@ -271,8 +271,8 @@ router.post("/:id/donations", (req, res) => {
   }
 
   const result = db.prepare(`
-    INSERT INTO donations (agreement_id, restaurant_id, ngo_id, volume_kg, food_type)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO donations (agreement_id, restaurant_id, ngo_id, volume_kg, food_type, collected_at)
+    VALUES (?, ?, ?, ?, ?, datetime('now', '-3 hours'))
   `).run(a.id, a.restaurant_id, a.ngo_id, Number(volume_kg), a.food_type);
 
   const donation = db.prepare("SELECT * FROM donations WHERE id = ?").get(result.lastInsertRowid);

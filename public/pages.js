@@ -284,7 +284,7 @@ route('proposta-enviada', async (params) => {
               <div class="status-dot done"></div>
               <div>
                 <div class="status-step-label">Proposta enviada</div>
-                <div class="status-step-sub">Hoje às ${new Date(a.created_at).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</div>
+                <div class="status-step-sub">Hoje às ${a.created_at ? a.created_at.slice(11, 16) : ''}</div>
               </div>
             </div>
             <div class="status-step">
@@ -330,7 +330,10 @@ route('acordo', async (params) => {
     const tipo = Auth.tipo;
     const partnerName = a.ngo_nome || a.restaurant_nome || 'Parceiro';
     const dias = Array.isArray(a.dias) ? a.dias.join(', ') : (JSON.parse(a.dias || '[]')).join(', ');
-    const canRespond = tipo === 'ong' && a.status === 'pendente' && a.iniciado_por === 'restaurante';
+    const canRespond = a.status === 'pendente' && (
+      (tipo === 'ong'         && a.iniciado_por === 'restaurante') ||
+      (tipo === 'restaurante' && a.iniciado_por === 'ong')
+    );
 
     setApp(`
       <div class="screen">
@@ -362,8 +365,10 @@ route('acordo', async (params) => {
           ${a.status === 'ativo' ? `
             <button class="btn btn-primary" onclick="navigate('chat',{agreementId:${a.id}})">💬 Abrir chat</button>
             <button class="btn btn-secondary" style="margin-top:8px;" onclick="encerrarAcordo(${a.id})">Encerrar acordo</button>` : ''}
-          ${a.status === 'pendente' && tipo === 'restaurante' ? `
+          ${a.status === 'pendente' && tipo === 'restaurante' && a.iniciado_por === 'restaurante' ? `
             <div class="info-box"><span class="info-box-icon">⏳</span><span class="info-box-text">Aguardando resposta da ONG.</span></div>` : ''}
+          ${a.status === 'pendente' && tipo === 'ong' && a.iniciado_por === 'ong' ? `
+            <div class="info-box"><span class="info-box-icon">⏳</span><span class="info-box-text">Aguardando resposta do restaurante.</span></div>` : ''}
           <p id="err" class="error-msg" style="margin-top:12px;"></p>
         </div>
 
@@ -610,13 +615,17 @@ route('chat', async (params) => {
 function renderChat(a, messages, proxima_coleta, partnerName) {
   const dias = Array.isArray(a.dias) ? a.dias.join(', ') : (JSON.parse(a.dias || '[]')).join(', ');
   const isActive = a.status === 'ativo';
+  const isRestaurant = Auth.tipo === 'restaurante';
   const statusClass = isActive ? 'badge-active' : a.status === 'pendente' ? 'badge-orange' : 'badge-gray';
   setApp(`
     <div class="screen" style="height:100vh;">
       ${topbar({ back: "navigate('inicio')", title: partnerName })}
-      <div style="padding:8px 16px;background:var(--bg-gray);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-shrink:0;">
-        <span class="badge ${statusClass}">Acordo ${a.status}</span>
-        <span style="font-size:12px;color:var(--text-3);">📅 ${dias} · 📦 ${a.volume}</span>
+      <div style="padding:8px 16px;background:var(--bg-gray);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:8px;flex-shrink:0;">
+        <div style="display:flex;align-items:center;gap:8px;min-width:0;">
+          <span class="badge ${statusClass}">Acordo ${a.status}</span>
+          <span style="font-size:12px;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">📅 ${dias} · 📦 ${a.volume}</span>
+        </div>
+        ${isActive && isRestaurant ? `<button class="btn-coleta" onclick="abrirModalColeta(${a.id})">📦 Registrar coleta</button>` : ''}
       </div>
       <div class="chat-area" id="chatArea">
         ${messages.map(m => renderMessage(m)).join('')}
@@ -682,7 +691,7 @@ function startChatStream(agreementId) {
 
 function renderMessage(m) {
   const isMe = m.sender_id === Auth.user?.id;
-  const time = new Date(m.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const time = m.created_at ? m.created_at.slice(11, 16) : '';
   return `
     <div class="msg ${isMe ? 'mine' : 'theirs'}">
       <div class="msg-bubble">${escHtml(m.texto)}</div>
@@ -693,6 +702,60 @@ function renderMessage(m) {
 function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
+
+window.abrirModalColeta = (agreementId) => {
+  const existing = document.getElementById('modalColeta');
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'modalColeta';
+  modal.className = 'modal-overlay';
+  modal.innerHTML = `
+    <div class="modal-box">
+      <div class="modal-title">📦 Registrar coleta</div>
+      <p class="modal-sub">Informe o volume de alimentos coletados nesta entrega.</p>
+      <div style="margin:16px 0;">
+        <label class="field-label">Volume (kg)</label>
+        <input id="coletaKg" type="number" min="0.1" step="0.1" placeholder="Ex: 25" class="input" style="margin-top:6px;" autofocus />
+      </div>
+      <p id="coletaErr" class="error-msg"></p>
+      <div style="display:flex;gap:10px;margin-top:4px;">
+        <button class="btn btn-secondary" style="flex:1;" onclick="fecharModalColeta()">Cancelar</button>
+        <button class="btn btn-primary" style="flex:2;" onclick="confirmarColeta(${agreementId})">Confirmar coleta</button>
+      </div>
+    </div>`;
+
+  modal.addEventListener('click', e => { if (e.target === modal) fecharModalColeta(); });
+  document.body.appendChild(modal);
+  requestAnimationFrame(() => modal.classList.add('modal-visible'));
+  document.getElementById('coletaKg').focus();
+};
+
+window.fecharModalColeta = () => {
+  const modal = document.getElementById('modalColeta');
+  if (!modal) return;
+  modal.classList.remove('modal-visible');
+  setTimeout(() => modal.remove(), 200);
+};
+
+window.confirmarColeta = async (agreementId) => {
+  const input = document.getElementById('coletaKg');
+  const err   = document.getElementById('coletaErr');
+  const kg    = parseFloat(input.value);
+  if (!kg || kg <= 0) { err.textContent = 'Informe um volume válido.'; return; }
+
+  const btn = document.querySelector('#modalColeta .btn-primary');
+  btn.disabled = true; btn.textContent = 'Registrando…';
+
+  try {
+    await api('POST', `/agreements/${agreementId}/donations`, { volume_kg: kg });
+    fecharModalColeta();
+    toast(`✅ ${kg}kg registrados com sucesso!`);
+  } catch (e) {
+    err.textContent = e.message;
+    btn.disabled = false; btn.textContent = 'Confirmar coleta';
+  }
+};
 
 window.sendMessage = async () => {
   if (!window._chatCanSend) return;
@@ -722,79 +785,128 @@ route('impacto', async () => {
     const data     = await api('GET', endpoint);
     const impact   = data.impact;
 
-    const weekly   = impact.weekly_kg || [];
-    const maxKg    = Math.max(...weekly.map(w => w.kg), 1);
+    const isRest = tipo === 'restaurante';
+    const totalKg = impact.total_kg || 0;
+    const mesKg   = impact.mes_atual_kg || 0;
 
-    const barChart = weekly.length > 0
-      ? `<div class="chart-wrap">
-           <div class="chart-title">Volume semanal (kg)</div>
-           <div class="bar-chart">
-             ${weekly.map((w, i) => `
-               <div class="bar-col">
-                 <div class="bar" style="height:${Math.round((w.kg / maxKg) * 70)}px;"></div>
-                 <div class="bar-label">S${i + 1}</div>
-               </div>`).join('')}
+    // ── Gráfico de barras semanal ──────────────────────────────────────────────
+    const weekly = impact.weekly_kg || [];
+    const maxKg  = Math.max(...weekly.map(w => w.kg), 1);
+    const hasWeeklyData = weekly.some(w => w.kg > 0);
+
+    const barChart = `
+      <div class="chart-wrap">
+        <div class="chart-title">Volume semanal (kg) — últimas 4 semanas</div>
+        <div class="bar-chart" style="height:100px;">
+          ${weekly.map(w => `
+            <div class="bar-col">
+              <div class="bar-value">${w.kg > 0 ? w.kg + 'kg' : ''}</div>
+              <div class="bar ${w.kg === 0 ? 'bar-empty' : ''}" style="height:${Math.max(Math.round((w.kg / maxKg) * 64), w.kg > 0 ? 4 : 0)}px;"></div>
+              <div class="bar-label">${w.label}</div>
+            </div>`).join('')}
+        </div>
+        ${!hasWeeklyData ? '<div style="text-align:center;font-size:12px;color:var(--text-3);margin-top:8px;">Registre doações para ver seu histórico</div>' : ''}
+      </div>`;
+
+    // ── Parceiros com barra de progresso ──────────────────────────────────────
+    const parceiros = isRest ? (impact.por_ong || []) : (impact.por_restaurante || []);
+    const maxParcKg = Math.max(...parceiros.map(p => p.kg), 1);
+    const parceirosHtml = parceiros.length > 0
+      ? `<div class="section-title">${isRest ? 'Doações por ONG parceira' : 'Recebimentos por restaurante'}</div>
+         <div class="card">
+           ${parceiros.map(p => `
+             <div class="partner-row">
+               <div class="partner-info">
+                 <span class="partner-name">${escHtml(p.nome || 'Parceiro')}</span>
+                 <span class="partner-kg">${p.kg}kg</span>
+               </div>
+               <div class="partner-bar-track">
+                 <div class="partner-bar-fill" style="width:${Math.round((p.kg / maxParcKg) * 100)}%"></div>
+               </div>
+             </div>`).join('')}
+         </div>`
+      : '';
+
+    // ── Card do mês atual ──────────────────────────────────────────────────────
+    const mesNome = new Date().toLocaleDateString('pt-BR', { month: 'long' });
+    const mesCard = mesKg > 0
+      ? `<div class="month-card">
+           <div class="month-card-icon">📅</div>
+           <div>
+             <div class="month-card-label">Em ${mesNome}</div>
+             <div class="month-card-value">${mesKg}kg ${isRest ? 'doados' : 'recebidos'}</div>
            </div>
          </div>`
       : '';
 
-    const porOng = (impact.por_ong || []).map(o => `
-      <div class="summary-row">
-        <span class="summary-icon">🤝</span>
-        <div>
-          <div class="summary-value">${o.nome}</div>
-          <div class="summary-label">${o.kg}kg recebidos</div>
-        </div>
-      </div>`).join('');
+    // ── Conquista/destaque ─────────────────────────────────────────────────────
+    let achievement = '';
+    if (totalKg >= 100) {
+      achievement = `<div class="achievement"><span class="achievement-icon">🏆</span><span class="achievement-text">Mais de 100kg doados — você faz a diferença!</span></div>`;
+    } else if (totalKg >= 10) {
+      achievement = `<div class="achievement"><span class="achievement-icon">⭐</span><span class="achievement-text">${Math.round(100 - totalKg)}kg para atingir 100kg de impacto!</span></div>`;
+    } else if (impact.acordos_ativos > 0) {
+      achievement = `<div class="achievement"><span class="achievement-icon">🌱</span><span class="achievement-text">Você tem ${impact.acordos_ativos} acordo${impact.acordos_ativos > 1 ? 's' : ''} ativo${impact.acordos_ativos > 1 ? 's' : ''}. Registre a primeira coleta!</span></div>`;
+    }
+
+    // ── Tipo mais doado (só restaurante) ──────────────────────────────────────
+    const tipoTag = isRest && impact.tipo_mais_doado
+      ? `<span style="font-size:12px;background:var(--green-light);color:var(--green);padding:3px 10px;border-radius:var(--radius-pill);font-weight:600;">
+           Mais doado: ${impact.tipo_mais_doado}
+         </span>`
+      : '';
 
     setApp(`
       <div class="screen">
         ${topbar({ logo: true })}
-        <div class="screen-content">
-          <div style="margin-bottom:20px;">
-            <p class="eyebrow">Seu impacto</p>
-            <h2>Veja o resultado das suas doações</h2>
+        <div class="screen-content" style="padding-bottom:80px;">
+
+          <!-- Hero -->
+          <div class="impact-hero">
+            <div class="impact-hero-label">${isRest ? 'Total doado' : 'Total recebido'}</div>
+            <div class="impact-hero-value">${totalKg}kg</div>
+            <div class="impact-hero-sub">
+              = <strong>${impact.refeicoes || 0} refeições</strong> ${isRest ? 'viabilizadas' : 'garantidas'}
+              ${isRest && impact.pessoas_estimadas ? `· <strong>${impact.pessoas_estimadas}</strong> pessoas` : ''}
+            </div>
+            ${tipoTag ? `<div style="margin-top:12px;">${tipoTag}</div>` : ''}
           </div>
 
-          <div class="stat-grid">
+          <!-- Mês atual -->
+          ${mesCard}
+
+          <!-- Conquista -->
+          ${achievement}
+
+          <!-- Grid de stats -->
+          <div class="stat-grid" style="margin-bottom:16px;">
             <div class="stat-card">
-              <div class="stat-icon">📈</div>
-              <div class="stat-value">${impact.total_kg || 0}kg</div>
-              <div class="stat-label">doados no total</div>
+              <div class="stat-icon">📦</div>
+              <div class="stat-value">${impact.total_coletas || 0}</div>
+              <div class="stat-label">coletas realizadas</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon">🤝</div>
+              <div class="stat-value">${impact.acordos_ativos || 0}</div>
+              <div class="stat-label">acordos ativos</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon">${isRest ? '🏥' : '🏪'}</div>
+              <div class="stat-value">${impact.parceiros_total || 0}</div>
+              <div class="stat-label">${isRest ? 'ONGs parceiras' : 'restaurantes parceiros'}</div>
             </div>
             <div class="stat-card">
               <div class="stat-icon">🍽️</div>
               <div class="stat-value">${impact.refeicoes || 0}</div>
-              <div class="stat-label">refeições viabilizadas</div>
+              <div class="stat-label">refeições</div>
             </div>
-            ${tipo === 'restaurante' ? `
-            <div class="stat-card">
-              <div class="stat-icon">👥</div>
-              <div class="stat-value">${impact.pessoas_estimadas || 0}</div>
-              <div class="stat-label">pessoas beneficiadas</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-icon">🤝</div>
-              <div class="stat-value">${impact.acordos_ativos || 0}</div>
-              <div class="stat-label">acordos ativos</div>
-            </div>` : `
-            <div class="stat-card">
-              <div class="stat-icon">🤝</div>
-              <div class="stat-value">${impact.acordos_ativos || 0}</div>
-              <div class="stat-label">acordos ativos</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-icon">🏪</div>
-              <div class="stat-value">${impact.parceiros_total || 0}</div>
-              <div class="stat-label">parceiros totais</div>
-            </div>`}
           </div>
 
+          <!-- Gráfico semanal -->
           ${barChart}
 
-          ${porOng ? `
-            <div class="section-title">O que as ONGs fizeram com suas doações</div>
-            <div class="card">${porOng}</div>` : ''}
+          <!-- Parceiros -->
+          ${parceirosHtml}
 
           <button class="btn btn-orange" style="margin-top:24px;" onclick="compartilharImpacto()">
             🔗 Compartilhar impacto

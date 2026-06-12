@@ -130,8 +130,8 @@ router.post("/", (req, res) => {
   }
 
   const result = db.prepare(`
-    INSERT INTO messages (agreement_id, sender_id, texto)
-    VALUES (?, ?, ?)
+    INSERT INTO messages (agreement_id, sender_id, texto, created_at)
+    VALUES (?, ?, ?, datetime('now', '-3 hours'))
   `).run(a.id, req.user.id, String(texto).trim());
 
   const msg = db.prepare(`

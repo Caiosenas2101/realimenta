@@ -20,7 +20,7 @@ db.exec(`
     email       TEXT    NOT NULL UNIQUE,
     password    TEXT    NOT NULL,
     tipo        TEXT    NOT NULL CHECK(tipo IN ('restaurante', 'ong')),
-    created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now', '-3 hours'))
   );
 
   CREATE TABLE IF NOT EXISTS restaurants (
@@ -35,7 +35,7 @@ db.exec(`
     food_types   TEXT,
     frequency    TEXT,
     volume_range TEXT,
-    updated_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+    updated_at   TEXT    NOT NULL DEFAULT (datetime('now', '-3 hours'))
   );
 
   CREATE TABLE IF NOT EXISTS ngos (
@@ -52,7 +52,7 @@ db.exec(`
     restrictions TEXT,
     days         TEXT,
     hours        TEXT,
-    updated_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+    updated_at   TEXT    NOT NULL DEFAULT (datetime('now', '-3 hours'))
   );
 
   CREATE TABLE IF NOT EXISTS agreements (
@@ -66,8 +66,8 @@ db.exec(`
     status        TEXT    NOT NULL DEFAULT 'pendente'
                           CHECK(status IN ('pendente', 'ativo', 'recusado', 'encerrado')),
     iniciado_por  TEXT    NOT NULL CHECK(iniciado_por IN ('restaurante', 'ong')),
-    created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
-    updated_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+    created_at    TEXT    NOT NULL DEFAULT (datetime('now', '-3 hours')),
+    updated_at    TEXT    NOT NULL DEFAULT (datetime('now', '-3 hours'))
   );
 
   CREATE TABLE IF NOT EXISTS messages (
@@ -75,7 +75,7 @@ db.exec(`
     agreement_id INTEGER NOT NULL REFERENCES agreements(id) ON DELETE CASCADE,
     sender_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     texto        TEXT    NOT NULL,
-    created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now', '-3 hours'))
   );
 
   CREATE TABLE IF NOT EXISTS donations (
@@ -85,7 +85,7 @@ db.exec(`
     ngo_id        INTEGER NOT NULL REFERENCES ngos(id) ON DELETE CASCADE,
     volume_kg     REAL    NOT NULL,
     food_type     TEXT    NOT NULL,
-    collected_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+    collected_at  TEXT    NOT NULL DEFAULT (datetime('now', '-3 hours'))
   );
 `);
 
