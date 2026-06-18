@@ -50,9 +50,11 @@ app.use((err, req, res, next) => {
   res.status(500).json({ message: err.message || "Erro interno do servidor." });
 });
 
-// ─── Start ────────────────────────────────────────────────────────────────────
-app.listen(PORT, () => {
-  console.log(`\n🌱 ReAlimenta rodando em http://localhost:${PORT}`);
-});
+// ─── Start local ──────────────────────────────────────────────────────────────
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`\n🌱 ReAlimenta rodando em http://localhost:${PORT}`);
+  });
+}
 
 module.exports = app;
